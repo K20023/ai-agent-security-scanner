@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Environment variables
+.env
+
+# Database
+*.db
+
+# Node / React
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+logs/
