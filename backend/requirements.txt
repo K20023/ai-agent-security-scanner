@@ -1,0 +1,25 @@
+# ─── Web Framework & API ───────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-dotenv==1.0.1
+
+# ─── Database ──────────────────────────────────────
+sqlalchemy==2.0.35
+
+# ─── HTTP & Data ───────────────────────────────────
+httpx==0.27.2
+requests==2.32.3
+pydantic>=2.13.0
+pandas==2.3.3
+numpy==2.3.4
+
+# ─── AI Agent Frameworks (targets for testing) ────
+langchain==1.0.0
+langchain-openai==1.0.0
+openai>=1.109.1
+
+# ─── Visualization (for thesis charts) ────────────
+plotly==5.24.1
+
+# ─── Testing ───────────────────────────────────────
+pytest==8.3.3
