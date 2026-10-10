@@ -18,6 +18,7 @@ from database.session import SessionLocal
 from scanner.attacks.library import get_all_attacks
 from scanner.harness.base import AgentHarness, AttackResult
 from scanner.harness.mock_agent import MockAgentHarness
+from scanner.harness.langchain_agent import LangChainHarness
 
 
 # ─── Harness Registry ────────────────────────────────────────
@@ -25,7 +26,7 @@ from scanner.harness.mock_agent import MockAgentHarness
 # Add new frameworks here as you implement their harnesses.
 HARNESSES: dict[str, type[AgentHarness]] = {
     "mock": MockAgentHarness,
-    # "langchain": LangChainAgentHarness,   ← next step
+    "langchain-ollama": LangChainHarness,
     # "autogpt":   AutoGPTHarness,           ← future
     # "crewai":    CrewAIHarness,            ← future
 }
