@@ -6,9 +6,27 @@ import {
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Cell
+  ResponsiveContainer, BarChart, Bar, Cell, Legend
 } from 'recharts';
-import { fetchScans, fetchScanDetail, createScan } from './api';
+import {
+  fetchScans,
+  fetchScanDetail,
+  createScan,
+  fetchAggregateSummary,
+} from './api';
+
+// ─── Colors per framework ───────────────────────────────────
+const FRAMEWORK_COLORS = {
+  'mock': '#22d3ee',
+  'langchain-ollama': '#ef4444',
+};
+
+function frameworkColor(name) {
+  if (FRAMEWORK_COLORS[name]) return FRAMEWORK_COLORS[name];
+  const palette = ['#a855f7', '#22c55e', '#eab308', '#f97316', '#ec4899'];
+  const hash = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return palette[hash % palette.length];
+}
 
 // ─── KPI Card ───────────────────────────────────────────────
 function KpiCard({ icon: Icon, label, value, change, trend }) {
@@ -36,13 +54,18 @@ function KpiCard({ icon: Icon, label, value, change, trend }) {
 export default function App() {
   const [scans, setScans] = useState([]);
   const [latestDetail, setLatestDetail] = useState(null);
+  const [aggregate, setAggregate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
 
   async function loadData() {
     try {
-      const scansData = await fetchScans();
+      const [scansData, aggData] = await Promise.all([
+        fetchScans(),
+        fetchAggregateSummary(),
+      ]);
       setScans(scansData);
+      setAggregate(aggData);
 
       if (scansData.length > 0) {
         const detail = await fetchScanDetail(scansData[0].scan_id);
@@ -69,52 +92,69 @@ export default function App() {
     loadData();
   }, []);
 
-  // ── Derived metrics ──────────────────────────────────────
-  const totalFindings = scans.reduce((acc, s) => acc + s.total_attacks, 0);
-  const avgSuccessRate = scans.length > 0
-    ? (scans.reduce((acc, s) => acc + s.success_rate, 0) / scans.length).toFixed(1)
-    : '0.0';
+  // ── KPI metrics ──────────────────────────────────────────
+  const totalAttacks = aggregate?.totals?.total_attacks ?? 0;
+  const totalSuccess = aggregate?.totals?.successful ?? 0;
+  const overallRate = aggregate?.totals?.success_rate ?? 0;
 
+  // Avg severity across all successful findings
+  let sevSum = 0;
+  let sevCount = 0;
+  aggregate?.frameworks?.forEach((fw) => {
+    Object.values(fw.by_category || {}).forEach((cat) => {
+      if (cat.successful > 0) {
+        sevSum += cat.avg_severity * cat.successful;
+        sevCount += cat.successful;
+      }
+    });
+  });
+  const avgSeverity = sevCount > 0 ? (sevSum / sevCount).toFixed(1) : '0.0';
+
+  // ── Trend data (per scan, oldest first, last 7) ─────────
   const trendData = [...scans]
     .slice(0, 7)
     .reverse()
     .map((s) => ({
       name: `#${s.scan_id}`,
-      total: s.total_attacks,
-      successful: s.successful,
-      blocked: s.blocked,
+      [s.framework]: s.success_rate,
     }));
 
-  const findingsByType = latestDetail
-    ? latestDetail.findings.reduce((acc, f) => {
-        const key = f.attack_type;
-        if (!acc[key]) acc[key] = { type: key, count: 0, successCount: 0, totalSev: 0 };
-        acc[key].count += 1;
-        if (f.success) acc[key].successCount += 1;
-        acc[key].totalSev += f.severity;
-        return acc;
-      }, {})
-    : {};
+  // ── Heatmap: category × framework ───────────────────────
+  const allCategories = new Set();
+  aggregate?.frameworks?.forEach((fw) => {
+    Object.keys(fw.by_category || {}).forEach((c) => allCategories.add(c));
+  });
+  const categories = Array.from(allCategories);
 
-  const heatmapData = Object.values(findingsByType).map(d => ({
-    type: d.type.replace(/_/g, ' '),
-    successRate: d.count > 0 ? (d.successCount / d.count) * 100 : 0,
+  const heatmapRows = categories.map((cat) => {
+    const row = { category: cat.replace(/_/g, ' ') };
+    aggregate?.frameworks?.forEach((fw) => {
+      const data = fw.by_category?.[cat];
+      row[fw.framework] = data ? data.success_rate : 0;
+    });
+    return row;
+  });
+
+  // ── Framework comparison (bar chart) ────────────────────
+  const frameworkComparison = (aggregate?.frameworks || []).map((fw) => ({
+    name: fw.framework,
+    success_rate: fw.success_rate,
+    total_attacks: fw.total_attacks,
+    scans: fw.scans,
   }));
 
-  const severityByType = Object.values(findingsByType).map(d => ({
-    type: d.type.replace(/_/g, ' '),
-    avgSeverity: d.count > 0 ? d.totalSev / d.count : 0,
-  }));
-
+  // ── Recent findings ─────────────────────────────────────
   const recentFindings = latestDetail
     ? [...latestDetail.findings]
         .sort((a, b) => b.severity - a.severity)
         .slice(0, 5)
     : [];
 
+  const frameworkNames = (aggregate?.frameworks || []).map((f) => f.framework);
+
   return (
     <div className="min-h-screen bg-navy-900 flex">
-      {/* ─── Sidebar ──────────────────────────────────── */}
+      {/* Sidebar */}
       <aside className="w-60 bg-navy-800 border-r border-navy-700 p-4 flex flex-col">
         <div className="flex items-center gap-2 mb-8">
           <Shield size={28} className="text-accent-cyan" />
@@ -141,13 +181,14 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ─── Main Content ─────────────────────────────── */}
+      {/* Main */}
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white">AI Agent Security Scanner</h1>
             <p className="text-sm text-gray-400">
-              Monitor, detect and analyze security risks in AI agent frameworks.
+              Aggregate comparison across {frameworkNames.length} framework
+              {frameworkNames.length !== 1 ? 's' : ''}.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -155,8 +196,8 @@ export default function App() {
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
                 type="text"
-                placeholder="Search frameworks, agents, findings..."
-                className="bg-navy-800 border border-navy-600 rounded pl-9 pr-4 py-2 text-sm w-72 focus:outline-none focus:border-accent-cyan"
+                placeholder="Search..."
+                className="bg-navy-800 border border-navy-600 rounded pl-9 pr-4 py-2 text-sm w-64 focus:outline-none focus:border-accent-cyan"
               />
             </div>
             <button className="text-gray-400 hover:text-white"><Bell size={20} /></button>
@@ -174,57 +215,61 @@ export default function App() {
           <div className="text-center py-20 text-gray-400">Loading...</div>
         ) : (
           <>
+            {/* KPI Cards */}
             <div className="grid grid-cols-4 gap-4 mb-6">
-              <KpiCard icon={Activity} label="Attacks Run" value={totalFindings} change="+18%" trend="up" />
-              <KpiCard icon={Target} label="Success Rate" value={`${avgSuccessRate}%`} change="+6.2%" trend="up" />
-              <KpiCard icon={AlertTriangle} label="Critical Findings" value={scans.reduce((a, s) => a + s.successful, 0)} change="+23%" trend="up" />
-              <KpiCard icon={Shield} label="Avg Severity" value="7.8" change="-0.6" trend="down" />
+              <KpiCard icon={Activity} label="Attacks Run" value={totalAttacks} change="+18%" trend="up" />
+              <KpiCard icon={Target} label="Success Rate" value={`${overallRate}%`} change="+6.2%" trend="up" />
+              <KpiCard icon={AlertTriangle} label="Critical Findings" value={totalSuccess} change="+23%" trend="up" />
+              <KpiCard icon={Shield} label="Avg Severity" value={avgSeverity} change="-0.6" trend="down" />
             </div>
 
+            {/* Framework Comparison + Trend */}
             <div className="grid grid-cols-2 gap-4 mb-6">
-              <Panel title="Attack Success Rates">
-                {heatmapData.length > 0 ? (
-                  <div className="space-y-2">
-                    {heatmapData.map(row => (
-                      <div key={row.type} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400 w-32 capitalize">{row.type}</span>
-                        <div className="flex-1 bg-navy-700 rounded h-6 relative overflow-hidden">
-                          <div
-                            className="h-full rounded transition-all"
-                            style={{
-                              width: `${row.successRate}%`,
-                              background: row.successRate > 80 ? '#ef4444'
-                                : row.successRate > 50 ? '#f97316'
-                                : row.successRate > 20 ? '#eab308'
-                                : '#22c55e'
-                            }}
-                          />
-                        </div>
-                        <span className="text-xs text-white w-12 text-right">
-                          {row.successRate.toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+              <Panel title="Framework Risk Comparison">
+                {frameworkComparison.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={frameworkComparison} layout="vertical" margin={{ left: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#232d45" />
+                      <XAxis type="number" domain={[0, 100]} stroke="#6b7280" fontSize={11} />
+                      <YAxis dataKey="name" type="category" stroke="#6b7280" fontSize={11} width={140} />
+                      <Tooltip
+                        contentStyle={{ background: '#1a2234', border: '1px solid #232d45', borderRadius: 6 }}
+                        labelStyle={{ color: '#e5e7eb' }}
+                      />
+                      <Bar dataKey="success_rate" radius={[0, 4, 4, 0]}>
+                        {frameworkComparison.map((entry, i) => (
+                          <Cell key={i} fill={frameworkColor(entry.name)} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 ) : (
-                  <div className="text-gray-500 text-sm">No data yet — run a scan</div>
+                  <div className="text-gray-500 text-sm">No frameworks tested yet</div>
                 )}
               </Panel>
 
               <Panel title="Attack Trends Over Time">
                 {trendData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={200}>
+                  <ResponsiveContainer width="100%" height={240}>
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#232d45" />
                       <XAxis dataKey="name" stroke="#6b7280" fontSize={11} />
-                      <YAxis stroke="#6b7280" fontSize={11} />
+                      <YAxis domain={[0, 100]} stroke="#6b7280" fontSize={11} />
                       <Tooltip
                         contentStyle={{ background: '#1a2234', border: '1px solid #232d45', borderRadius: 6 }}
                         labelStyle={{ color: '#e5e7eb' }}
                       />
-                      <Line type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={2} />
-                      <Line type="monotone" dataKey="successful" stroke="#ef4444" strokeWidth={2} />
-                      <Line type="monotone" dataKey="blocked" stroke="#22c55e" strokeWidth={2} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {frameworkNames.map((fw) => (
+                        <Line
+                          key={fw}
+                          type="monotone"
+                          dataKey={fw}
+                          stroke={frameworkColor(fw)}
+                          strokeWidth={2}
+                          connectNulls
+                        />
+                      ))}
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -233,11 +278,84 @@ export default function App() {
               </Panel>
             </div>
 
+            {/* Heatmap grid: category × framework */}
+            <div className="mb-6">
+              <Panel title="Attack Success Rate by Category and Framework">
+                {heatmapRows.length > 0 && frameworkNames.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr>
+                          <th className="text-left text-gray-400 font-normal py-2 px-3">
+                            Attack Category
+                          </th>
+                          {frameworkNames.map((fw) => (
+                            <th key={fw} className="text-center text-gray-400 font-normal py-2 px-3">
+                              {fw}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {heatmapRows.map((row, i) => (
+                          <tr key={i} className="border-t border-navy-700">
+                            <td className="py-2 px-3 text-gray-300 capitalize">
+                              {row.category}
+                            </td>
+                            {frameworkNames.map((fw) => {
+                              const value = row[fw] ?? 0;
+                              const bg = value > 80 ? '#7f1d1d'
+                                : value > 60 ? '#9a3412'
+                                : value > 40 ? '#713f12'
+                                : value > 20 ? '#14532d'
+                                : '#1e293b';
+                              const fg = value > 80 ? '#fca5a5'
+                                : value > 60 ? '#fdba74'
+                                : value > 40 ? '#fde047'
+                                : value > 20 ? '#86efac'
+                                : '#94a3b8';
+                              return (
+                                <td key={fw} className="py-2 px-3 text-center">
+                                  <span
+                                    className="inline-block w-16 py-1 rounded font-mono font-semibold"
+                                    style={{ background: bg, color: fg }}
+                                  >
+                                    {value.toFixed(0)}%
+                                  </span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-gray-500 text-sm">No category data yet</div>
+                )}
+              </Panel>
+            </div>
+
+            {/* Severity + Recent */}
             <div className="grid grid-cols-2 gap-4">
-              <Panel title="Average Severity by Attack Type">
-                {severityByType.length > 0 ? (
+              <Panel title="Latest Scan — Severity by Attack Type">
+                {latestDetail && latestDetail.findings.length > 0 ? (
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={severityByType} layout="vertical">
+                    <BarChart
+                      data={Object.entries(
+                        latestDetail.findings.reduce((acc, f) => {
+                          const key = f.attack_type;
+                          if (!acc[key]) acc[key] = { type: key, sev: 0, n: 0 };
+                          acc[key].sev += f.severity;
+                          acc[key].n += 1;
+                          return acc;
+                        }, {})
+                      ).map(([, d]) => ({
+                        type: d.type.replace(/_/g, ' '),
+                        avgSeverity: d.n > 0 ? d.sev / d.n : 0,
+                      }))}
+                      layout="vertical"
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="#232d45" />
                       <XAxis type="number" domain={[0, 10]} stroke="#6b7280" fontSize={11} />
                       <YAxis dataKey="type" type="category" stroke="#6b7280" fontSize={11} width={120} />
@@ -245,21 +363,11 @@ export default function App() {
                         contentStyle={{ background: '#1a2234', border: '1px solid #232d45', borderRadius: 6 }}
                         labelStyle={{ color: '#e5e7eb' }}
                       />
-                      <Bar dataKey="avgSeverity" radius={[0, 4, 4, 0]}>
-                        {severityByType.map((entry, i) => (
-                          <Cell
-                            key={i}
-                            fill={entry.avgSeverity > 8 ? '#ef4444'
-                              : entry.avgSeverity > 6 ? '#f97316'
-                              : entry.avgSeverity > 4 ? '#eab308'
-                              : '#22c55e'}
-                          />
-                        ))}
-                      </Bar>
+                      <Bar dataKey="avgSeverity" radius={[0, 4, 4, 0]} fill="#ef4444" />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="text-gray-500 text-sm">No severity data</div>
+                  <div className="text-gray-500 text-sm">No data</div>
                 )}
               </Panel>
 
@@ -301,7 +409,7 @@ export default function App() {
   );
 }
 
-// ─── Helper Components ──────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────
 function NavItem({ icon: Icon, label, active }) {
   return (
     <div

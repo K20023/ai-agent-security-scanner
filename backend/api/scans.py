@@ -3,6 +3,10 @@ Scan-related API endpoints.
 
 Exposes the scanner orchestrator over HTTP so the dashboard and any
 external client can trigger scans and read results.
+
+Route order matters: static paths like /summary/aggregate must be
+declared BEFORE dynamic paths like /{scan_id}, otherwise FastAPI will
+try to match "summary" as a scan_id.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -78,7 +82,114 @@ def list_scans(db: Session = Depends(get_db)):
     ]
 
 
+# ─── GET /scans/summary/aggregate ────────────────────────────
+# MUST be declared before /{scan_id} to avoid route conflict.
+@router.get("/summary/aggregate")
+def aggregate_summary(db: Session = Depends(get_db)):
+    """
+    Aggregate all scans by framework.
+
+    Returns per-framework:
+      - total scans
+      - total attacks run
+      - total successful attacks
+      - overall success rate
+      - attack counts by category (with per-category success rate and avg severity)
+    """
+    scans = db.query(Scan).all()
+    if not scans:
+        return {"frameworks": [], "totals": {}}
+
+    # Group scans by framework
+    by_framework: dict[str, dict] = {}
+    for s in scans:
+        if s.framework not in by_framework:
+            by_framework[s.framework] = {
+                "framework": s.framework,
+                "scans": 0,
+                "total_attacks": 0,
+                "successful": 0,
+                "blocked": 0,
+                "by_category": {},
+            }
+        fw = by_framework[s.framework]
+        fw["scans"] += 1
+        fw["total_attacks"] += s.total_attacks
+        fw["successful"] += s.successful
+        fw["blocked"] += s.blocked
+
+    # Aggregate findings by framework + category
+    for fw_name, fw in by_framework.items():
+        findings = (
+            db.query(Finding)
+            .join(Scan, Finding.scan_id == Scan.id)
+            .filter(Scan.framework == fw_name)
+            .all()
+        )
+
+        cat_stats: dict[str, dict] = {}
+        for f in findings:
+            cat = f.attack_type
+            if cat not in cat_stats:
+                cat_stats[cat] = {
+                    "total": 0,
+                    "successful": 0,
+                    "total_severity": 0.0,
+                }
+            cat_stats[cat]["total"] += 1
+            if f.success:
+                cat_stats[cat]["successful"] += 1
+                cat_stats[cat]["total_severity"] += f.severity
+
+        fw["by_category"] = {
+            cat: {
+                "total": data["total"],
+                "successful": data["successful"],
+                "success_rate": round(
+                    (data["successful"] / data["total"] * 100)
+                    if data["total"]
+                    else 0.0,
+                    2,
+                ),
+                "avg_severity": round(
+                    (data["total_severity"] / data["successful"])
+                    if data["successful"]
+                    else 0.0,
+                    2,
+                ),
+            }
+            for cat, data in cat_stats.items()
+        }
+
+        fw["success_rate"] = round(
+            (fw["successful"] / fw["total_attacks"] * 100)
+            if fw["total_attacks"]
+            else 0.0,
+            2,
+        )
+
+    # Grand totals
+    totals = {
+        "scans": sum(fw["scans"] for fw in by_framework.values()),
+        "total_attacks": sum(fw["total_attacks"] for fw in by_framework.values()),
+        "successful": sum(fw["successful"] for fw in by_framework.values()),
+        "frameworks": len(by_framework),
+    }
+    totals["success_rate"] = round(
+        (totals["successful"] / totals["total_attacks"] * 100)
+        if totals["total_attacks"]
+        else 0.0,
+        2,
+    )
+
+    return {
+        "frameworks": list(by_framework.values()),
+        "totals": totals,
+    }
+
+
 # ─── GET /scans/{scan_id} ────────────────────────────────────
+# MUST be declared after any static paths like /summary/aggregate.
 @router.get("/{scan_id}")
 def get_scan_detail(scan_id: int, db: Session = Depends(get_db)):
     """Get one scan with all its findings."""

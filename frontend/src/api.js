@@ -2,6 +2,7 @@
 
 const API_BASE = 'http://127.0.0.1:8000';
 
+// ─── Single-Scan Endpoints ──────────────────────────────────
 export async function fetchScans() {
   const res = await fetch(`${API_BASE}/scans`);
   if (!res.ok) throw new Error('Failed to fetch scans');
@@ -21,5 +22,12 @@ export async function createScan(framework = 'mock') {
     body: JSON.stringify({ framework }),
   });
   if (!res.ok) throw new Error('Failed to create scan');
+  return res.json();
+}
+
+// ─── Cross-Scan Aggregate Endpoint ──────────────────────────
+export async function fetchAggregateSummary() {
+  const res = await fetch(`${API_BASE}/scans/summary/aggregate`);
+  if (!res.ok) throw new Error('Failed to fetch aggregate summary');
   return res.json();
 }
