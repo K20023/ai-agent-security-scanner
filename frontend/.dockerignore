@@ -1,0 +1,35 @@
+# ─── Dependencies ───────────────────────────────────────────
+# The image runs `npm ci` to install its own.
+node_modules/
+
+# ─── Build Output ───────────────────────────────────────────
+# The image runs `npm run build` to generate its own.
+dist/
+build/
+
+# ─── Environment ────────────────────────────────────────────
+.env
+.env.local
+
+# ─── IDE & Editor ───────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ─── OS Junk ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ───────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── Docker Files ───────────────────────────────────────────
+Dockerfile
+.dockerignore
+
+# ─── Git ────────────────────────────────────────────────────
+.git/
+.gitignore

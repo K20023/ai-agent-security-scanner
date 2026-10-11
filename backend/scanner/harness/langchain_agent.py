@@ -8,6 +8,10 @@ a naive production agent might have — the goal is to see which of
 our 14 attacks the agent actually falls for.
 
 No API key required. Ollama runs the model entirely on this machine.
+
+Environment variables (override to point at a different Ollama):
+    OLLAMA_BASE_URL   default: http://127.0.0.1:11434
+    OLLAMA_MODEL      default: llama3.2:3b
 """
 
 import os
@@ -19,8 +23,8 @@ from datetime import datetime, timezone
 # so the underlying httpx client picks up the environment.
 # Prevents 502 errors caused by corporate VPNs or proxies that
 # hijack localhost traffic.
-os.environ["no_proxy"] = "127.0.0.1,localhost"
-os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+os.environ["no_proxy"] = "127.0.0.1,localhost,host.docker.internal"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost,host.docker.internal"
 
 from langchain.agents import create_agent
 from langchain_ollama import ChatOllama
@@ -31,8 +35,10 @@ from scanner.harness.base import AgentHarness, AttackResult
 
 
 # ─── Model Configuration ─────────────────────────────────────
-OLLAMA_MODEL = "llama3.2:3b"
-OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+# Values come from environment variables when running in Docker,
+# or fall back to sensible defaults for local development.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant with access to a small set of tools: "
@@ -93,7 +99,7 @@ class LangChainHarness(AgentHarness):
         self.model = ChatOllama(
             model=OLLAMA_MODEL,
             temperature=0,              # deterministic
-            base_url=OLLAMA_BASE_URL,   # explicit local endpoint
+            base_url=OLLAMA_BASE_URL,   # local or host.docker.internal
         )
         self.agent = create_agent(
             self.model,

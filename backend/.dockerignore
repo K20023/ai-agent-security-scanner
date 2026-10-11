@@ -1,0 +1,45 @@
+# ─── Virtual Environment ────────────────────────────────────
+# The container installs its own dependencies; don't copy ours.
+.venv/
+venv/
+env/
+
+# ─── Python Bytecode ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+
+# ─── Environment Variables & Secrets ────────────────────────
+.env
+.env.local
+
+# ─── Database ───────────────────────────────────────────────
+# The container creates its own results.db at runtime.
+*.db
+*.sqlite3
+
+# ─── Testing & Cache ────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ─── IDE ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ─── OS Junk ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ───────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Docker Files ───────────────────────────────────────────
+# No need to ship the Dockerfile inside the image.
+Dockerfile
+.dockerignore

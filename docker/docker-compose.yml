@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────
+# AI Agent Security Scanner — Docker Compose
+#
+# Starts:
+#   - backend  (FastAPI + scanner)
+#   - frontend (React + nginx)
+#
+# Uses the Ollama service running on the Windows HOST
+# (reached via host.docker.internal:11434).
+#
+# Run:  docker compose up --build
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ─── Backend: FastAPI + Scanner ──────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ai-scanner-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Reach the Windows host's Ollama from inside the container
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - ENV=production
+    volumes:
+      # Persist the SQLite database across restarts
+      - scanner-data:/app/database
+    extra_hosts:
+      # Ensures host.docker.internal resolves on all platforms
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - scanner-net
+
+  # ─── Frontend: React + nginx ─────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: ai-scanner-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - scanner-net
+
+# ─── Volumes ────────────────────────────────────────────────
+volumes:
+  scanner-data:
+    driver: local
+
+# ─── Networks ───────────────────────────────────────────────
+networks:
+  scanner-net:
+    driver: bridge
