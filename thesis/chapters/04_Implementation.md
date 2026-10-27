@@ -20,17 +20,18 @@ The key API endpoints include:
 
 ## 4.3 The Frontend Dashboard
 
-The React dashboard provides a Security Operations Center (SOC) style interface. It was designed to be visually comparable to enterprise security tools (like Splunk or CrowdStrike). It features:
-
-- **KPI Cards:** Total attacks run, overall success rate, critical findings, and average severity.
-- **Framework Comparison Chart:** A bar chart comparing the baseline (mock) against the real LLM (Ollama).
-- **Category Heatmap:** A table displaying the success rate of each attack category across different frameworks, providing an immediate visual understanding of where the AI is weakest.
-- **Sidebar Navigation:** Allows the user to switch between the Dashboard, Scans list, Agents view, and Findings list without reloading the page.
+The React dashboard provides a Security Operations Center (SOC) style interface. It features KPI cards (Total attacks, success rate), a framework comparison chart, a category heatmap, and a detailed findings list. Sidebar navigation allows the user to switch between the Dashboard, Scans list, Agents view, and Findings list without reloading the page.
 
 ## 4.4 Containerization
 
-To ensure absolute reproducibility, the entire system is containerized using Docker and Docker Compose.
+To ensure absolute reproducibility, the entire system is containerized using Docker and Docker Compose. The backend runs in a Python slim container, and the frontend is served via an Nginx container. The backend connects to the host machine's Ollama instance via `host.docker.internal`. The entire system starts with a single command: `docker compose up`.
 
-- The backend runs in a `python:3.13-slim` container.
-- The frontend is built using a multi-stage Node.js build and served via an Nginx container.
-- The backend is configured to reach the host machine's Ollama instance via `host.docker.internal`. This allows the LLM to run natively on the host for maximum performance, while keeping the web stack isolated. The entire system can be started with a single command: `docker compose up`.
+## 4.5 System Screenshots
+
+**Figure 4.1: Main Dashboard Interface**
+The dashboard displays aggregated security metrics and comparison charts.
+![Main Dashboard](../figures/dashboard_main.png)
+
+**Figure 4.2: Detailed Findings List**
+The Findings page lists individual attack payloads and their results.
+![Findings Page](../figures/dashboard_findings.png)
